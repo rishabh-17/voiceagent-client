@@ -15,7 +15,7 @@ const ChatUI = () => {
   let recognition;
 
   useEffect(() => {
-    const socket = io("http://localhost:5000");
+    const socket = io("https://voiceagent-server-5cvu.onrender.com");
     setSocket(socket);
     socket.onopen = () => {
       console.log("WebSocket connection established.");

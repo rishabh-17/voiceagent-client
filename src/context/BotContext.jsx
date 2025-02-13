@@ -9,7 +9,7 @@ export const BotProvider = ({ children }) => {
   const [ttsConfig, setTtsConfig] = useState({});
 
   const axiosInstance = axios.create({
-    baseURL: "http://localhost:5000/api",
+    baseURL: "https://voiceagent-server-5cvu.onrender.com/api",
     headers: { Authorization: `Bearer ${token}` },
   });
 
