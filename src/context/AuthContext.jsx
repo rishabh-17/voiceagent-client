@@ -7,16 +7,13 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(localStorage.getItem("token"));
 
   const axiosInstance = axios.create({
-    baseURL: "https://voiceagent-server-5cvu.onrender.com/api",
+    baseURL: "http://localhost:5000/api",
     headers: { Authorization: `Bearer ${token}` },
   });
 
   const login = (userData) => {
     return axios
-      .post(
-        "https://voiceagent-server-5cvu.onrender.com/api/auth/login",
-        userData
-      )
+      .post("http://localhost:5000/api/auth/login", userData)
       .then((res) => {
         localStorage.setItem("token", res.data.token);
         setToken(res.data.token);
@@ -28,10 +25,7 @@ export const AuthProvider = ({ children }) => {
 
   const signup = (userData) => {
     return axios
-      .post(
-        "https://voiceagent-server-5cvu.onrender.com/api/auth/signup",
-        userData
-      )
+      .post("http://localhost:5000/api/auth/signup", userData)
       .then((res) => {
         setToken(res.data.token);
         localStorage.setItem("token", res.data.token);

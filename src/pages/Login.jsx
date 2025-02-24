@@ -9,12 +9,20 @@ const Login = () => {
 
   const onFinish = (values) => {
     // Simulate login - In real app, make API call here
-    login(values).then(() => {
-      message.success("Login successful!");
-      setTimeout(() => {
-        navigate("/dashboard");
-      }, 1000);
-    });
+    login(values)
+      .then((data) => {
+        if (!data) {
+          message.error("Invalid email or password");
+          return;
+        }
+        message.success("Login successful!");
+        setTimeout(() => {
+          navigate("/dashboard");
+        }, 1000);
+      })
+      .catch((error) => {
+        message.error(error.message);
+      });
   };
 
   return (

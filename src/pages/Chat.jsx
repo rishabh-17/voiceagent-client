@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button, Avatar } from "antd";
 import { AudioOutlined, StopOutlined } from "@ant-design/icons";
 import Layout from "../components/Layout";
@@ -9,72 +9,153 @@ const ChatUI = () => {
   const { id } = useParams();
   const [socket, setSocket] = useState(null);
   const [messages, setMessages] = useState([
-    { id: 1, text: "Hello! How can I help you?", sender: "bot" },
+    { text: "Hello! How can I help you?", sender: "bot", question: "" },
   ]);
   const [listening, setListening] = useState(false);
-  let recognition;
+  const [audioQueue, setAudioQueue] = useState([]);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const currentQuestionRef = useRef("");
+  const audioRef = useRef(null);
+  const recognitionRef = useRef(null);
 
   useEffect(() => {
-    const socket = io("https://voiceagent-server-5cvu.onrender.com");
-    setSocket(socket);
-    socket.onopen = () => {
-      console.log("WebSocket connection established.");
-    };
-    socket.on("connect", () => {
+    const newSocket = io("http://localhost:5000");
+    setSocket(newSocket);
+
+    newSocket.on("connect", () => {
       console.log("Connected to server");
-      socket.emit("join", id);
+      newSocket.emit("join", id);
     });
 
-    socket.on("botMessage", (botMessage) => {
-      console.log(botMessage);
-      setMessages((prev) => [
-        ...prev,
-        { id: prev.length + 1, text: botMessage?.botMessage, sender: "bot" },
-      ]);
-      var snd = new Audio("data:audio/wav;base64," + botMessage.audio);
-      snd.play();
+    newSocket.on("botMessage", (botMessage) => {
+      if (botMessage.question.trim() === currentQuestionRef.current.trim()) {
+        setMessages((prev) => {
+          const existingMessage = prev.find(
+            (m) => m.question === botMessage.question
+          );
+          if (!existingMessage) {
+            return [
+              ...prev,
+              {
+                text: botMessage.botMessage,
+                sender: "bot",
+                question: botMessage.question,
+              },
+            ];
+          }
+          return prev.map((m) =>
+            m.question === botMessage.question
+              ? { ...m, text: m.text + `\n${botMessage.botMessage}` }
+              : m
+          );
+        });
+
+        if (botMessage.audio) {
+          setAudioQueue((i) => [...i, botMessage.audio]);
+        }
+      }
     });
 
     return () => {
-      socket.disconnect();
+      newSocket.disconnect();
     };
-  }, []);
+  }, [id]);
 
   useEffect(() => {
-    if (socket) socket.emit("join", id);
-  }, [socket]);
+    if (!isPlaying && audioQueue.length > 0) {
+      playAudio(audioQueue[0]);
+      setAudioQueue((prevQueue) => prevQueue.slice(1));
+    }
+  }, [audioQueue, isPlaying]);
+
+  const stopAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+    setAudioQueue([]);
+    setIsPlaying(false);
+  };
+
+  const playAudio = async (audioData) => {
+    setIsPlaying(true);
+    try {
+      const byteCharacters = atob(audioData);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const audioBlob = new Blob([byteArray], { type: "audio/wav" });
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+
+      audioRef.current = audio;
+      audio
+        .play()
+        .then(() => {
+          audio.onended = () => {
+            URL.revokeObjectURL(audioUrl);
+            setIsPlaying(false);
+          };
+        })
+        .catch((error) => {
+          console.error("Audio playback error:", error);
+          setIsPlaying(false);
+        });
+
+      audio.onerror = () => {
+        console.error("Error playing audio:", audioData);
+        setIsPlaying(false);
+      };
+    } catch (error) {
+      console.error("Audio processing error:", error);
+      setIsPlaying(false);
+    }
+  };
 
   const startListening = () => {
-    recognition = new (window.SpeechRecognition ||
-      window.webkitSpeechRecognition)();
+    stopAudio();
+
+    if (!recognitionRef.current) {
+      recognitionRef.current = new (window.SpeechRecognition ||
+        window.webkitSpeechRecognition)();
+    }
+    const recognition = recognitionRef.current;
+
     recognition.lang = "en-US";
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => setListening(true);
-    recognition.onend = () => setListening(false);
-    recognition.onerror = (event) =>
-      console.error("Speech recognition error:", event);
-
+    recognition.onend = () => {
+      recognition.start();
+    };
+    recognition.onerror = (event) => {
+      console.error("Speech recognition error:", event.error);
+    };
     recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      const newMessage = {
-        id: messages.length + 1,
-        text: transcript,
-        sender: "user",
-      };
-      setMessages((prev) => [...prev, newMessage]);
-      console.log(`User said: ${transcript}`);
-      // Send user message to server
-      socket.emit("userMessage", transcript);
+      const transcript = event.results[0][0].transcript || "hi how are you";
+      currentQuestionRef.current = transcript;
+
+      stopAudio();
+
+      setMessages((prev) => [
+        ...prev,
+        { text: transcript, sender: "user", question: null },
+        { text: "", sender: "bot", question: transcript },
+      ]);
+      if (socket) socket.emit("userMessage", transcript);
     };
 
     recognition.start();
   };
 
   const stopListening = () => {
-    if (recognition) {
-      recognition.stop();
+    if (recognitionRef.current) {
+      recognitionRef.current.onend = null; // Prevent restarting
+      recognitionRef.current.stop();
       setListening(false);
     }
   };
@@ -83,13 +164,13 @@ const ChatUI = () => {
     <div className="flex flex-col h-screen border rounded-lg shadow-lg bg-white">
       <Layout>
         <h2 className="text-center mt-4 text-xl font-semibold">
-          {localStorage.getItem("selectedBot")}
+          {localStorage.getItem("selectedBot") || "Chatbot"}
         </h2>
 
         <div className="flex-1 p-4 overflow-y-auto space-y-4 h-[65vh]">
-          {messages.map((msg) => (
+          {messages.map((msg, index) => (
             <div
-              key={msg.id}
+              key={index}
               className={`flex ${
                 msg.sender === "user" ? "justify-end" : "justify-start"
               }`}
