@@ -121,7 +121,7 @@ const ChatUI = () => {
         });
 
       audio.onerror = () => {
-        console.error("Error playing audio:", audioData);
+        // console.error("Error playing audio:", audioData);
         setIsPlaying(false);
       };
     } catch (error) {
@@ -131,8 +131,8 @@ const ChatUI = () => {
   };
 
   const startListening = () => {
-    stopAudio(); // Ensure previous audio is stopped
-    audioStoppedRef.current = false; // **Allow new audio to play**
+    stopAudio();
+    audioStoppedRef.current = false;
 
     if (!recognitionRef.current) {
       recognitionRef.current = new (window.SpeechRecognition ||
@@ -147,6 +147,10 @@ const ChatUI = () => {
     recognition.onstart = () => {
       setListening(true);
     };
+    recognition.onspeechstart = () => {
+      console.log("Speech started");
+      stopAudio();
+    };
     recognition.onend = () => {
       recognition.start();
     };
@@ -154,7 +158,7 @@ const ChatUI = () => {
       console.error("Speech recognition error:", event.error);
     };
     recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript || "hi how are you";
+      const transcript = event.results[0][0].transcript;
       currentQuestionRef.current = transcript;
 
       stopAudio();
@@ -172,13 +176,13 @@ const ChatUI = () => {
 
   const stopListening = () => {
     if (recognitionRef.current) {
-      recognitionRef.current.onend = null; // Prevent restarting
+      recognitionRef.current.onend = null;
       recognitionRef.current.stop();
       setListening(false);
     }
 
-    audioStoppedRef.current = true; // **Block future audio messages**
-    stopAudio(); // **Immediately stop any ongoing audio**
+    audioStoppedRef.current = true;
+    stopAudio();
   };
 
   return (
