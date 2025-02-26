@@ -17,6 +17,7 @@ const ChatUI = () => {
   const currentQuestionRef = useRef("");
   const audioRef = useRef(null);
   const recognitionRef = useRef(null);
+  const audioStoppedRef = useRef(false); // Track if user clicked "Stop"
 
   useEffect(() => {
     const newSocket = io("http://localhost:5000");
@@ -28,7 +29,11 @@ const ChatUI = () => {
     });
 
     newSocket.on("botMessage", (botMessage) => {
-      if (botMessage.question.trim() === currentQuestionRef.current.trim()) {
+      if (
+        botMessage.question.trim() === currentQuestionRef.current.trim() &&
+        botMessage.audio &&
+        !audioStoppedRef.current
+      ) {
         setMessages((prev) => {
           const existingMessage = prev.find(
             (m) => m.question === botMessage.question
@@ -50,8 +55,9 @@ const ChatUI = () => {
           );
         });
 
-        if (botMessage.audio) {
-          setAudioQueue((i) => [...i, botMessage.audio]);
+        // **Only play audio if audioStoppedRef is false**
+        if (botMessage.audio && !audioStoppedRef.current) {
+          setAudioQueue((prevQueue) => [...prevQueue, botMessage.audio]);
         }
       }
     });
@@ -72,9 +78,18 @@ const ChatUI = () => {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
+      audioRef.current.onended = null;
+
+      if (audioRef.current.src.startsWith("blob:")) {
+        URL.revokeObjectURL(audioRef.current.src);
+      }
+
+      audioRef.current.src = "";
+      audioRef.current.load();
       audioRef.current = null;
     }
-    setAudioQueue([]);
+
+    setAudioQueue([]); // **Clear all queued audio**
     setIsPlaying(false);
   };
 
@@ -116,7 +131,8 @@ const ChatUI = () => {
   };
 
   const startListening = () => {
-    stopAudio();
+    stopAudio(); // Ensure previous audio is stopped
+    audioStoppedRef.current = false; // **Allow new audio to play**
 
     if (!recognitionRef.current) {
       recognitionRef.current = new (window.SpeechRecognition ||
@@ -128,7 +144,9 @@ const ChatUI = () => {
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
 
-    recognition.onstart = () => setListening(true);
+    recognition.onstart = () => {
+      setListening(true);
+    };
     recognition.onend = () => {
       recognition.start();
     };
@@ -158,6 +176,9 @@ const ChatUI = () => {
       recognitionRef.current.stop();
       setListening(false);
     }
+
+    audioStoppedRef.current = true; // **Block future audio messages**
+    stopAudio(); // **Immediately stop any ongoing audio**
   };
 
   return (
