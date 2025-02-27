@@ -141,34 +141,62 @@ const ChatUI = () => {
     const recognition = recognitionRef.current;
 
     recognition.lang = "en-US";
-    recognition.interimResults = false;
+    recognition.interimResults = true; // Keep interim results for real-time feedback if desired
     recognition.maxAlternatives = 1;
+    recognition.continuous = true;
+
+    let finalTranscript = "";
+    let timeoutId = null;
 
     recognition.onstart = () => {
       setListening(true);
     };
+
     recognition.onspeechstart = () => {
       console.log("Speech started");
       stopAudio();
     };
+
     recognition.onend = () => {
-      recognition.start();
+      recognition.start(); // Restart recognition if it ends
     };
+
     recognition.onerror = (event) => {
       console.error("Speech recognition error:", event.error);
     };
+
     recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      currentQuestionRef.current = transcript;
+      let interimTranscript = "";
 
-      stopAudio();
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript = transcript;
+        } else {
+          interimTranscript += transcript;
+        }
+      }
 
-      setMessages((prev) => [
-        ...prev,
-        { text: transcript, sender: "user", question: null },
-        { text: "", sender: "bot", question: transcript },
-      ]);
-      if (socket) socket.emit("userMessage", transcript);
+      currentQuestionRef.current = interimTranscript || finalTranscript;
+
+      if (timeoutId) clearTimeout(timeoutId);
+
+      timeoutId = setTimeout(() => {
+        if (finalTranscript || interimTranscript) {
+          const completeSentence = finalTranscript || interimTranscript;
+          stopAudio();
+
+          setMessages((prev) => [
+            ...prev,
+            { text: completeSentence, sender: "user", question: null },
+            { text: "", sender: "bot", question: completeSentence },
+          ]);
+
+          if (socket) socket.emit("userMessage", completeSentence);
+
+          finalTranscript = "";
+        }
+      }, 1000);
     };
 
     recognition.start();
