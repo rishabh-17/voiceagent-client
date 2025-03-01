@@ -18,6 +18,7 @@ const ChatUI = () => {
   const audioRef = useRef(null);
   const recognitionRef = useRef(null);
   const audioStoppedRef = useRef(false);
+  const [onGoingMsg, setOnGoingMsg] = useState("");
 
   useEffect(() => {
     const newSocket = io("http://localhost:5000");
@@ -160,12 +161,14 @@ const ChatUI = () => {
       recognition.start();
     };
     recognition.onresult = (event) => {
+      setOnGoingMsg(event.results[0][0].transcript);
       if (event.results[0][0].transcript) stopAudio();
       if (event.results[0].isFinal) {
         const transcript = event.results[0][0].transcript;
         currentQuestionRef.current = transcript;
 
         console.log(event.results[0].isFinal, transcript);
+        setOnGoingMsg("");
         setMessages((prev) => [
           ...prev,
           { text: transcript, sender: "user", question: null },
@@ -196,7 +199,10 @@ const ChatUI = () => {
         </h2>
 
         <div className="flex-1 p-4 overflow-y-auto space-y-4 h-[65vh]">
-          {messages.map((msg, index) => (
+          {(onGoingMsg
+            ? [...messages, { text: onGoingMsg, sender: "user" }]
+            : messages
+          ).map((msg, index) => (
             <div
               key={index}
               className={`flex ${
