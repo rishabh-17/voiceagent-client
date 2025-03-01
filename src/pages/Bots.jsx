@@ -101,7 +101,7 @@ const Bots = () => {
             icon={<MessageOutlined />}
             onClick={() => {
               localStorage.setItem("selectedBot", record.name);
-              navigate("/bot/" + record._id);
+              window.location.href = "/bot/" + record._id;
             }}
             type="link"
           />
