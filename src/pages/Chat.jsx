@@ -17,7 +17,7 @@ const ChatUI = () => {
   const currentQuestionRef = useRef("");
   const audioRef = useRef(null);
   const recognitionRef = useRef(null);
-  const audioStoppedRef = useRef(false); // Track if user clicked "Stop"
+  const audioStoppedRef = useRef(false);
 
   useEffect(() => {
     const newSocket = io("http://localhost:5000");
@@ -55,7 +55,6 @@ const ChatUI = () => {
           );
         });
 
-        // **Only play audio if audioStoppedRef is false**
         if (botMessage.audio && !audioStoppedRef.current) {
           setAudioQueue((prevQueue) => [...prevQueue, botMessage.audio]);
         }
@@ -89,7 +88,7 @@ const ChatUI = () => {
       audioRef.current = null;
     }
 
-    setAudioQueue([]); // **Clear all queued audio**
+    setAudioQueue([]);
     setIsPlaying(false);
   };
 
@@ -140,8 +139,10 @@ const ChatUI = () => {
     }
     const recognition = recognitionRef.current;
 
+    // recognition.continuous = true;
+
     recognition.lang = "en-US";
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
@@ -158,19 +159,20 @@ const ChatUI = () => {
       console.error("Speech recognition error:", event.error);
     };
     recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      currentQuestionRef.current = transcript;
+      if (event.results[0][0].transcript) stopAudio();
+      if (event.results[0].isFinal) {
+        const transcript = event.results[0][0].transcript;
+        currentQuestionRef.current = transcript;
 
-      stopAudio();
-
-      setMessages((prev) => [
-        ...prev,
-        { text: transcript, sender: "user", question: null },
-        { text: "", sender: "bot", question: transcript },
-      ]);
-      if (socket) socket.emit("userMessage", transcript);
+        console.log(event.results[0].isFinal, transcript);
+        setMessages((prev) => [
+          ...prev,
+          { text: transcript, sender: "user", question: null },
+          { text: "", sender: "bot", question: transcript },
+        ]);
+        if (socket) socket.emit("userMessage", transcript);
+      }
     };
-
     recognition.start();
   };
 
