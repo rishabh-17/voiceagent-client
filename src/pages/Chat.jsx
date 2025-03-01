@@ -157,6 +157,7 @@ const ChatUI = () => {
     };
     recognition.onerror = (event) => {
       console.error("Speech recognition error:", event.error);
+      recognition.start();
     };
     recognition.onresult = (event) => {
       if (event.results[0][0].transcript) stopAudio();
