@@ -15,10 +15,12 @@ const ChatUI = () => {
   const [audioQueue, setAudioQueue] = useState([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const currentQuestionRef = useRef("");
-  const audioRef = useRef(null);
   const recognitionRef = useRef(null);
   const audioStoppedRef = useRef(false);
   const [onGoingMsg, setOnGoingMsg] = useState("");
+  const audioContextRef = useRef(null);
+  const sourceNodeRef = useRef(null);
+  const mediaStreamSourceRef = useRef(null);
 
   useEffect(() => {
     const newSocket = io("http://localhost:5000");
@@ -31,7 +33,7 @@ const ChatUI = () => {
 
     newSocket.on("botMessage", (botMessage) => {
       if (
-        botMessage.question.trim() === currentQuestionRef.current.trim() &&
+        botMessage?.question?.trim() === currentQuestionRef?.current?.trim() &&
         botMessage.audio &&
         !audioStoppedRef.current
       ) {
@@ -56,9 +58,7 @@ const ChatUI = () => {
           );
         });
 
-        if (botMessage.audio && !audioStoppedRef.current) {
-          setAudioQueue((prevQueue) => [...prevQueue, botMessage.audio]);
-        }
+        setAudioQueue((prevQueue) => [...prevQueue, botMessage.audio]);
       }
     });
 
@@ -74,25 +74,6 @@ const ChatUI = () => {
     }
   }, [audioQueue, isPlaying]);
 
-  const stopAudio = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      audioRef.current.onended = null;
-
-      if (audioRef.current.src.startsWith("blob:")) {
-        URL.revokeObjectURL(audioRef.current.src);
-      }
-
-      audioRef.current.src = "";
-      audioRef.current.load();
-      audioRef.current = null;
-    }
-
-    setAudioQueue([]);
-    setIsPlaying(false);
-  };
-
   const playAudio = async (audioData) => {
     setIsPlaying(true);
     try {
@@ -102,36 +83,27 @@ const ChatUI = () => {
         byteNumbers[i] = byteCharacters.charCodeAt(i);
       }
       const byteArray = new Uint8Array(byteNumbers);
-      const audioBlob = new Blob([byteArray], { type: "audio/wav" });
-      const audioUrl = URL.createObjectURL(audioBlob);
-      const audio = new Audio(audioUrl);
+      const audioContext = new (window.AudioContext ||
+        window.webkitAudioContext)();
+      audioContextRef.current = audioContext;
+      const audioBuffer = await audioContext.decodeAudioData(byteArray.buffer);
+      const source = audioContext.createBufferSource();
+      sourceNodeRef.current = source;
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
+      source.start(0);
 
-      audioRef.current = audio;
-      audio
-        .play()
-        .then(() => {
-          audio.onended = () => {
-            URL.revokeObjectURL(audioUrl);
-            setIsPlaying(false);
-          };
-        })
-        .catch((error) => {
-          console.error("Audio playback error:", error);
-          setIsPlaying(false);
-        });
-
-      audio.onerror = () => {
-        // console.error("Error playing audio:", audioData);
+      source.onended = () => {
+        source.disconnect();
         setIsPlaying(false);
       };
     } catch (error) {
-      console.error("Audio processing error:", error);
+      console.error("Audio playback error:", error);
       setIsPlaying(false);
     }
   };
 
-  const startListening = () => {
-    stopAudio();
+  const startListening = async () => {
     audioStoppedRef.current = false;
 
     if (!recognitionRef.current) {
@@ -140,55 +112,65 @@ const ChatUI = () => {
     }
     const recognition = recognitionRef.current;
 
-    // recognition.continuous = true;
-
     recognition.lang = "en-US";
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
 
-    recognition.onstart = () => {
-      setListening(true);
-    };
-    recognition.onspeechstart = () => {
-      console.log("Speech started");
-      stopAudio();
-    };
-    recognition.onend = () => {
-      recognition.start();
-    };
-    recognition.onerror = (event) => {
-      console.error("Speech recognition error:", event.error);
-      recognition.start();
-    };
-    recognition.onresult = (event) => {
-      setOnGoingMsg(event.results[0][0].transcript);
-      if (event.results[0][0].transcript) stopAudio();
-      if (event.results[0].isFinal) {
-        const transcript = event.results[0][0].transcript;
-        currentQuestionRef.current = transcript;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 44100,
+        },
+      });
+      const audioContext = new (window.AudioContext ||
+        window.webkitAudioContext)();
+      audioContextRef.current = audioContext;
+      mediaStreamSourceRef.current =
+        audioContext.createMediaStreamSource(stream);
+      mediaStreamSourceRef.current.connect(audioContext.destination);
 
-        console.log(event.results[0].isFinal, transcript);
-        setOnGoingMsg("");
-        setMessages((prev) => [
-          ...prev,
-          { text: transcript, sender: "user", question: null },
-          { text: "", sender: "bot", question: transcript },
-        ]);
-        if (socket) socket.emit("userMessage", transcript);
-      }
-    };
-    recognition.start();
+      recognition.onstart = () => setListening(true);
+      recognition.onspeechstart = () => stopAudio();
+      recognition.onend = () => recognition.start();
+      recognition.onerror = (event) =>
+        console.error("Speech recognition error:", event.error);
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setOnGoingMsg(transcript);
+        if (event.results[0].isFinal) {
+          currentQuestionRef.current = transcript;
+          setOnGoingMsg("");
+          setMessages((prev) => [
+            ...prev,
+            { text: transcript, sender: "user" },
+            { text: "", sender: "bot", question: transcript },
+          ]);
+          if (socket) socket.emit("userMessage", transcript);
+        }
+      };
+      recognition.start();
+    } catch (error) {
+      console.error("Media device error:", error);
+    }
   };
 
   const stopListening = () => {
     if (recognitionRef.current) {
-      recognitionRef.current.onend = null;
       recognitionRef.current.stop();
       setListening(false);
     }
-
     audioStoppedRef.current = true;
     stopAudio();
+  };
+
+  const stopAudio = () => {
+    if (sourceNodeRef.current) {
+      sourceNodeRef.current.stop();
+      sourceNodeRef.current.disconnect();
+      setIsPlaying(false);
+    }
   };
 
   return (
