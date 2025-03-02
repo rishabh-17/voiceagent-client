@@ -121,7 +121,9 @@ const ChatUI = () => {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          sampleRate: 44100,
+          autoGainControl: true,
+          sampleRate: 16000, // Lower sample rate reduces sensitivity
+          channelCount: 1,
         },
       });
       const audioContext = new (window.AudioContext ||
