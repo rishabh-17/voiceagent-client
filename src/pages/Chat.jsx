@@ -101,9 +101,18 @@ const ChatUI = () => {
       const audioBuffer = await audioContextRef.current.decodeAudioData(
         byteArray.buffer
       );
+
+      if (sourceNodeRef.current) {
+        sourceNodeRef.current.stop();
+        sourceNodeRef.current.disconnect();
+        sourceNodeRef.current.onended = null;
+      }
+
       const source = audioContextRef.current.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(gainNodeRef.current);
+      sourceNodeRef.current = source;
+
       source.start(0);
       source.onended = () => {
         source.disconnect();
@@ -115,7 +124,7 @@ const ChatUI = () => {
     }
   };
 
-  const startListening = async () => {
+  const startListen = async () => {
     audioStoppedRef.current = false;
     if (!recognitionRef.current) {
       recognitionRef.current = new (window.SpeechRecognition ||
@@ -142,15 +151,19 @@ const ChatUI = () => {
       analyserNode.fftSize = 256;
       mediaStreamSource.connect(analyserNode);
       recognition.onstart = () => setListening(true);
-      recognition.onspeechstart = () => {}; // Remove stopAudio, handle via ducking
+      recognition.onspeechstart = () => {}; // Handle via ducking
       recognition.onend = () => recognition.start();
       recognition.onerror = (event) =>
         console.error("Speech recognition error:", event.error);
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
-        stopAudio();
+        if (transcript) {
+          stopAudio();
+          setAudioQueue([]);
+        }
+        setOnGoingMsg(transcript);
         if (event.results[0].isFinal) {
-          // setOnGoingMsg(transcript);
+          stopAudio();
           currentQuestionRef.current = transcript;
           setOnGoingMsg("");
           setMessages((prev) => [
@@ -165,17 +178,17 @@ const ChatUI = () => {
       const monitorLevel = () => {
         if (!monitoringRef.current) return;
         const bufferLength = analyserNode.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
-        analyserNode.getByteTimeDomainData(dataArray);
+        const floatArray = new Float32Array(bufferLength);
+        analyserNode.getFloatTimeDomainData(floatArray);
         let sum = 0;
         for (let i = 0; i < bufferLength; i++) {
-          sum += Math.abs(dataArray[i] - 128);
+          sum += floatArray[i] * floatArray[i];
         }
-        const level = sum / bufferLength;
-        const threshold = 50; // Adjust based on testing
-        if (level > threshold) {
+        const rms = Math.sqrt(sum / bufferLength);
+        const threshold = 0.05;
+        if (rms > threshold) {
           gainNodeRef.current.gain.setTargetAtTime(
-            0.1,
+            0.01,
             audioContext.currentTime,
             0.1
           );
@@ -194,7 +207,7 @@ const ChatUI = () => {
     }
   };
 
-  const stopListening = () => {
+  const stopListen = () => {
     if (recognitionRef.current) {
       recognitionRef.current.stop();
       setListening(false);
@@ -206,23 +219,19 @@ const ChatUI = () => {
     }
   };
 
-  // const stopListening = () => {
-  //   if (recognitionRef.current) {
-  //     recognitionRef.current.stop();
-  //     setListening(false);
-  //   }
-  //   audioStoppedRef.current = true;
-  //   stopAudio();
-  // };
-
   const stopAudio = () => {
     if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
-      setIsPlaying(false);
+      try {
+        sourceNodeRef.current.stop();
+        sourceNodeRef.current.disconnect();
+        sourceNodeRef.current.onended = null; // Remove event listener
+        setIsPlaying(false);
+        console.log("Audio stopped.");
+      } catch (error) {
+        console.error("Error stopping audio:", error);
+      }
     }
   };
-
   return (
     <div className="flex flex-col h-screen border rounded-lg shadow-lg bg-white">
       <Layout>
@@ -260,7 +269,7 @@ const ChatUI = () => {
           <Button
             type="primary"
             icon={<AudioOutlined />}
-            onClick={startListening}
+            onClick={startListen}
             disabled={listening}
           >
             Start
@@ -268,7 +277,7 @@ const ChatUI = () => {
           <Button
             type="danger"
             icon={<StopOutlined />}
-            onClick={stopListening}
+            onClick={stopListen}
             disabled={!listening}
           >
             Stop
