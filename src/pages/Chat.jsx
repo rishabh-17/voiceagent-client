@@ -21,6 +21,8 @@ const ChatUI = () => {
   const audioContextRef = useRef(null);
   const sourceNodeRef = useRef(null);
   const mediaStreamSourceRef = useRef(null);
+  const gainNodeRef = useRef(null);
+  const monitoringRef = useRef(true);
 
   useEffect(() => {
     const newSocket = io("http://localhost:5000");
@@ -68,6 +70,19 @@ const ChatUI = () => {
   }, [id]);
 
   useEffect(() => {
+    const audioContext = new (window.AudioContext ||
+      window.webkitAudioContext)();
+    audioContextRef.current = audioContext;
+    const gainNode = audioContext.createGain();
+    gainNode.gain.value = 1;
+    gainNode.connect(audioContext.destination);
+    gainNodeRef.current = gainNode;
+    return () => {
+      audioContext.close();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isPlaying && audioQueue.length > 0) {
       playAudio(audioQueue[0]);
       setAudioQueue((prevQueue) => prevQueue.slice(1));
@@ -83,16 +98,13 @@ const ChatUI = () => {
         byteNumbers[i] = byteCharacters.charCodeAt(i);
       }
       const byteArray = new Uint8Array(byteNumbers);
-      const audioContext = new (window.AudioContext ||
-        window.webkitAudioContext)();
-      audioContextRef.current = audioContext;
-      const audioBuffer = await audioContext.decodeAudioData(byteArray.buffer);
-      const source = audioContext.createBufferSource();
-      sourceNodeRef.current = source;
+      const audioBuffer = await audioContextRef.current.decodeAudioData(
+        byteArray.buffer
+      );
+      const source = audioContextRef.current.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(audioContext.destination);
+      source.connect(gainNodeRef.current);
       source.start(0);
-
       source.onended = () => {
         source.disconnect();
         setIsPlaying(false);
@@ -105,41 +117,38 @@ const ChatUI = () => {
 
   const startListening = async () => {
     audioStoppedRef.current = false;
-
     if (!recognitionRef.current) {
       recognitionRef.current = new (window.SpeechRecognition ||
         window.webkitSpeechRecognition)();
     }
     const recognition = recognitionRef.current;
-
     recognition.lang = "en-US";
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          sampleRate: 16000, // Lower sample rate reduces sensitivity
+          sampleRate: 16000,
           channelCount: 1,
         },
       });
-      const audioContext = new (window.AudioContext ||
-        window.webkitAudioContext)();
-      audioContextRef.current = audioContext;
-      mediaStreamSourceRef.current =
-        audioContext.createMediaStreamSource(stream);
-      mediaStreamSourceRef.current.connect(audioContext.destination);
-
+      const audioContext = audioContextRef.current;
+      const mediaStreamSource = audioContext.createMediaStreamSource(stream);
+      mediaStreamSourceRef.current = mediaStreamSource;
+      const analyserNode = audioContext.createAnalyser();
+      analyserNode.fftSize = 256;
+      mediaStreamSource.connect(analyserNode);
       recognition.onstart = () => setListening(true);
-      recognition.onspeechstart = () => stopAudio();
+      recognition.onspeechstart = () => {}; // Remove stopAudio, handle via ducking
       recognition.onend = () => recognition.start();
       recognition.onerror = (event) =>
         console.error("Speech recognition error:", event.error);
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
+        stopAudio();
         setOnGoingMsg(transcript);
         if (event.results[0].isFinal) {
           currentQuestionRef.current = transcript;
@@ -153,6 +162,33 @@ const ChatUI = () => {
         }
       };
       recognition.start();
+      const monitorLevel = () => {
+        if (!monitoringRef.current) return;
+        const bufferLength = analyserNode.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        analyserNode.getByteTimeDomainData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < bufferLength; i++) {
+          sum += Math.abs(dataArray[i] - 128);
+        }
+        const level = sum / bufferLength;
+        const threshold = 50; // Adjust based on testing
+        if (level > threshold) {
+          gainNodeRef.current.gain.setTargetAtTime(
+            0.1,
+            audioContext.currentTime,
+            0.1
+          );
+        } else {
+          gainNodeRef.current.gain.setTargetAtTime(
+            1,
+            audioContext.currentTime,
+            0.1
+          );
+        }
+        requestAnimationFrame(monitorLevel);
+      };
+      monitorLevel();
     } catch (error) {
       console.error("Media device error:", error);
     }
@@ -164,8 +200,20 @@ const ChatUI = () => {
       setListening(false);
     }
     audioStoppedRef.current = true;
-    stopAudio();
+    monitoringRef.current = false;
+    if (mediaStreamSourceRef.current) {
+      mediaStreamSourceRef.current.disconnect();
+    }
   };
+
+  // const stopListening = () => {
+  //   if (recognitionRef.current) {
+  //     recognitionRef.current.stop();
+  //     setListening(false);
+  //   }
+  //   audioStoppedRef.current = true;
+  //   stopAudio();
+  // };
 
   const stopAudio = () => {
     if (sourceNodeRef.current) {
@@ -181,7 +229,6 @@ const ChatUI = () => {
         <h2 className="text-center mt-4 text-xl font-semibold">
           {localStorage.getItem("selectedBot") || "Chatbot"}
         </h2>
-
         <div className="flex-1 p-4 overflow-y-auto space-y-4 h-[65vh]">
           {(onGoingMsg
             ? [...messages, { text: onGoingMsg, sender: "user" }]
@@ -209,26 +256,23 @@ const ChatUI = () => {
             </div>
           ))}
         </div>
-
         <div className="p-3 mb-4 border-t flex w-full items-center space-x-2 bg-white">
-          <div>
-            <Button
-              type="primary"
-              icon={<AudioOutlined />}
-              onClick={startListening}
-              disabled={listening}
-            >
-              Start
-            </Button>
-            <Button
-              type="danger"
-              icon={<StopOutlined />}
-              onClick={stopListening}
-              disabled={!listening}
-            >
-              Stop
-            </Button>
-          </div>
+          <Button
+            type="primary"
+            icon={<AudioOutlined />}
+            onClick={startListening}
+            disabled={listening}
+          >
+            Start
+          </Button>
+          <Button
+            type="danger"
+            icon={<StopOutlined />}
+            onClick={stopListening}
+            disabled={!listening}
+          >
+            Stop
+          </Button>
         </div>
       </Layout>
     </div>
