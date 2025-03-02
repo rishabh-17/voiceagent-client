@@ -149,8 +149,8 @@ const ChatUI = () => {
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         stopAudio();
-        setOnGoingMsg(transcript);
         if (event.results[0].isFinal) {
+          // setOnGoingMsg(transcript);
           currentQuestionRef.current = transcript;
           setOnGoingMsg("");
           setMessages((prev) => [
