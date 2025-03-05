@@ -142,6 +142,10 @@ const ChatUI = () => {
           autoGainControl: true,
           sampleRate: 16000,
           channelCount: 1,
+          latency: 0,
+          googEchoCancellation: true,
+          googAutoGainControl: true,
+          googNoiseSuppression: true,
         },
       });
       const audioContext = audioContextRef.current;
@@ -185,18 +189,18 @@ const ChatUI = () => {
           sum += floatArray[i] * floatArray[i];
         }
         const rms = Math.sqrt(sum / bufferLength);
-        const threshold = 0.05;
+        const threshold = 0.02;
         if (rms > threshold) {
           gainNodeRef.current.gain.setTargetAtTime(
-            0.01,
+            0.05,
             audioContext.currentTime,
-            0.1
+            0.05
           );
         } else {
           gainNodeRef.current.gain.setTargetAtTime(
             1,
             audioContext.currentTime,
-            0.1
+            0.3
           );
         }
         requestAnimationFrame(monitorLevel);
@@ -224,7 +228,7 @@ const ChatUI = () => {
       try {
         sourceNodeRef.current.stop();
         sourceNodeRef.current.disconnect();
-        sourceNodeRef.current.onended = null; // Remove event listener
+        sourceNodeRef.current.onended = null;
         setIsPlaying(false);
         console.log("Audio stopped.");
       } catch (error) {
