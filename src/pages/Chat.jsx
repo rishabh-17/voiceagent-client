@@ -213,13 +213,33 @@ const ChatUI = () => {
 
   const stopListen = () => {
     if (recognitionRef.current) {
+      recognitionRef.current.onend = null;
       recognitionRef.current.stop();
       setListening(false);
+      console.log("Speech recognition stopped.");
     }
+
     audioStoppedRef.current = true;
     monitoringRef.current = false;
+
     if (mediaStreamSourceRef.current) {
       mediaStreamSourceRef.current.disconnect();
+      mediaStreamSourceRef.current = null;
+    }
+
+    if (sourceNodeRef.current) {
+      try {
+        sourceNodeRef.current.stop();
+        sourceNodeRef.current.disconnect();
+        sourceNodeRef.current = null;
+      } catch (error) {
+        console.error("Audio Source Error:", error);
+      }
+    }
+
+    if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+      audioContextRef.current.close();
+      console.log("Audio context closed.");
     }
   };
 
