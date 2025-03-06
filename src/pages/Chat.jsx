@@ -189,7 +189,7 @@ const ChatUI = () => {
           sum += floatArray[i] * floatArray[i];
         }
         const rms = Math.sqrt(sum / bufferLength);
-        const threshold = 0.05;
+        const threshold = 0.01;
         if (rms > threshold) {
           gainNodeRef.current.gain.setTargetAtTime(
             0.01,
@@ -198,7 +198,7 @@ const ChatUI = () => {
           );
         } else {
           gainNodeRef.current.gain.setTargetAtTime(
-            1,
+            0.5,
             audioContext.currentTime,
             0.1
           );
