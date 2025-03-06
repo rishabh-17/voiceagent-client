@@ -189,18 +189,18 @@ const ChatUI = () => {
           sum += floatArray[i] * floatArray[i];
         }
         const rms = Math.sqrt(sum / bufferLength);
-        const threshold = 0.02;
+        const threshold = 0.05;
         if (rms > threshold) {
           gainNodeRef.current.gain.setTargetAtTime(
-            0.05,
+            0.01,
             audioContext.currentTime,
-            0.05
+            0.1
           );
         } else {
           gainNodeRef.current.gain.setTargetAtTime(
             1,
             audioContext.currentTime,
-            0.3
+            0.1
           );
         }
         requestAnimationFrame(monitorLevel);
