@@ -4,6 +4,7 @@ import { AudioOutlined, StopOutlined } from "@ant-design/icons";
 import Layout from "../components/Layout";
 import io from "socket.io-client";
 import { useParams } from "react-router-dom";
+import { useMicVAD } from "@ricky0123/vad-react";
 
 const ChatUI = () => {
   const { id } = useParams();
@@ -23,7 +24,19 @@ const ChatUI = () => {
   const mediaStreamSourceRef = useRef(null);
   const gainNodeRef = useRef(null);
   const monitoringRef = useRef(true);
-
+  const vad = useMicVAD({
+    onSpeechStart: () => {
+      console.log("User started talking");
+      // pauseAudioResponse();
+      // startListening();
+      startListen();
+    },
+    onSpeechEnd: (audio) => {
+      console.log("User stopped talking");
+      console.log(audio);
+      startListen();
+    },
+  });
   useEffect(() => {
     const newSocket = io("http://localhost:5000");
     setSocket(newSocket);
@@ -156,7 +169,7 @@ const ChatUI = () => {
       mediaStreamSource.connect(analyserNode);
       recognition.onstart = () => setListening(true);
       recognition.onspeechstart = () => {}; // Handle via ducking
-      recognition.onend = () => recognition.start();
+      recognition.onend = () => {};
       recognition.onerror = (event) =>
         console.error("Speech recognition error:", event.error);
       recognition.onresult = (event) => {
