@@ -225,6 +225,7 @@ const ChatUI = () => {
   };
 
   const stopListen = () => {
+    window.location.reload();
     if (recognitionRef.current) {
       recognitionRef.current.onend = null;
       recognitionRef.current.stop();
